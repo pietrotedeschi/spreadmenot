@@ -1,0 +1,82 @@
+(*
+SpreadMeNot: A Provably Secure andPrivacy-Preserving Contact Tracing Protocol (Formal Security Proof with Proverif)
+Authors: Pietro Tedeschi, Spiridon Bakiras and Roberto Di Pietro
+Division of Information and Computing Technology (ICT)
+College of Science and Engineering (CSE)
+Hamad Bin Khalifa University (HBKU), Doha, Qatar
+{ptedeschi, sbakiras, rdipietro}@hbku.edu.qa
+*)
+
+(*--Dolev-Yao model Open Channels--*)
+free c:channel. (*Broadcasting Channel*)
+
+type device.
+type scalar.
+type point.
+type lon.
+type lat.
+type ts.
+type id.
+
+(*Elliptic Curve Generator Point and Cyrptographic Functions*)
+const G: point [data].
+fun hash(bitstring):bitstring.
+fun mult(scalar, point): point.
+fun mul(scalar, scalar): scalar.
+
+(*--Check timestamp freshness operation--*)
+fun freshness(ts, bool): bool
+reduc forall T: ts; freshness(T, true) = true
+otherwise forall T: ts; freshness(T, false) = false.
+
+(*--Check distance operation--*)
+fun distance(lat,lon,bool): bool
+reduc forall c_lat: lat, c_lon:lon; distance(c_lat, c_lon, true) = true
+otherwise forall c_lat: lat, c_lon:lon; distance(c_lat,c_lon, false) = false.
+
+(*--Digital Signatures--*)
+fun sign(bitstring, scalar): bitstring.
+reduc forall m: bitstring, k: scalar; getmess(sign(m, k)) = m.
+reduc forall m: bitstring, k: scalar, p:point; checksign(sign(m, k), mult(k,p)) = m.
+
+(*Events*)
+event releaseBeacon(bitstring).
+event acceptBeacon(bitstring).
+
+(* Authentication *)
+query beacon: bitstring; event(acceptBeacon(beacon)) ==> event(releaseBeacon(beacon)).
+
+let smnA =
+    new xi:         scalar;
+    new rk:         scalar;
+    new lonc:       lon;
+    new latc:       lat;
+    new t:          ts;
+    
+    let rx      = mul(rk,xi)    in
+    let xG      = mult(xi, G)   in
+    let rG      = mult(rk, G)   in      (*Beacon 1st Component*)
+    let rxG     = mult(rk, xG)  in      (*Beacon 2nd Component --- rP*)
+    
+    let h  = hash((latc,lonc,t,rG,rxG)) in
+    let ro  = sign(h, rx) in
+
+    event releaseBeacon((latc,lonc,t,rG,rxG,ro));
+
+    out(c, ((latc,lonc,t,rG,rxG,ro), freshness(t, true), distance(latc,lonc,true))).
+
+(* A generic Receiver *)  
+let smnB = 
+  new xj:       scalar;
+  let xjG       = mult(xj, G)    in
+  in(c, ((latc:lat,lonc:lon,t:ts,rG:point,rxG:point,ro:bitstring), checkT:bool, checkL:bool));
+
+  let xrG       = mult(xj, rG) in
+  
+  if checkT = true then
+    if checkL = true then
+        let roA = checksign(ro, xrG) in
+            event acceptBeacon((latc,lonc,t,rG,rxG,ro)).
+
+
+process ((!smnA) | (!smnB))
